@@ -4,3 +4,5 @@ numpy
 matplotlib
 streamlit
 lxml
+schedule
+pillow
