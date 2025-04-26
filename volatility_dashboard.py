@@ -15,6 +15,10 @@ from PIL import Image
 logo = Image.open("logo.png")
 st.image(logo, width=250)
 
+EMAIL_ADDRESS = st.secrets["email"]["address"]
+EMAIL_PASSWORD = st.secrets["email"]["password"]
+RECIPIENT_EMAIL = st.secrets["email"]["recipient"]
+
 
 # volatility_dashboard.py
 
@@ -23,6 +27,43 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
+
+
+import smtplib
+from email.message import EmailMessage
+
+def send_email_report_html(df_filtered):
+    if df_filtered.empty:
+        return "No data to email."
+
+    # Build HTML table
+    top_trades = df_filtered[['Ticker', 'CurrentPrice', 'Call_IV_Premium', 'Put_IV_Premium', 'IV_Skew', 'Strategy']]
+    html_table = top_trades.to_html(index=False, border=0, justify='center')
+
+    html_content = f"""
+    <html>
+        <body style="font-family: Arial; background-color: #f9f9f9; padding: 20px;">
+            <h2 style="color: #333;">📈 Volatility Screener - Top Trades</h2>
+            {html_table}
+            <p style="font-size: 12px; color: #999;">Sent automatically by your Screener Bot 🤖</p>
+        </body>
+    </html>
+    """
+
+    msg = EmailMessage()
+    msg['Subject'] = '📈 Volatility Screener – Trade Alerts'
+    msg['From'] = EMAIL_ADDRESS
+    msg['To'] = RECIPIENT_EMAIL
+    msg.set_content("This is an HTML email. Please view it in an email client that supports HTML.")
+    msg.add_alternative(html_content, subtype='html')
+
+    # Send
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        smtp.send_message(msg)
+
+    return "✅ HTML Email sent successfully!"
+
 
 # ========== Data Fetcher (Big Tickers + Sector) ==========
 
@@ -300,3 +341,9 @@ if st.button("Run Dynamic Volatility Backtest"):
     if not backtest_results.empty:
         avg_pnl = backtest_results['PnL (%)'].mean()
         st.success(f"Average PnL across trades: {avg_pnl:.2f}%")
+
+st.subheader("📬 Test Email Sending")
+
+if st.button("Send Test Email"):
+    result = send_email_report_html(df_filtered)
+    st.success(result)
