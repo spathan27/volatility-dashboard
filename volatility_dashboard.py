@@ -70,17 +70,18 @@ def send_email_report_html(df_filtered):
 @st.cache_data
 def fetch_stock_data():
     tickers = [
-    "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA", "AVGO", "GOOG", "COST",
-    "PEP", "NFLX", "ADBE", "CSCO", "TMUS", "AMD", "INTC", "TXN", "AMAT", "QCOM",
-    "HON", "SBUX", "INTU", "AMGN", "ISRG", "BKNG", "ADI", "LRCX", "MDLZ", "PYPL",
-    "VRTX", "GILD", "PDD", "CSX", "REGN", "MU", "ADP", "KDP", "MAR", "MELI", "CRWD",
-    "IDXX", "ABNB", "ASML", "PANW", "CTSH", "MNST", "KLAC", "SNPS", "CDNS", "MRVL",
-    "NXPI", "FTNT", "AEP", "EXC", "ORLY", "CHTR", "ROST", "BIIB", "DXCM", "TEAM",
-    "WDAY", "CTAS", "DDOG", "PCAR", "ANSS", "XEL", "SIRI", "CEG", "LCID", "WBD",
-    "SGEN", "VRSK", "FAST", "ZS", "VRSN", "PAYX", "BIDU", "MTCH", "ALGN", "ZM",
-    "JD", "ILMN", "LULU", "DOCU", "ENPH", "OKTA", "PCTY", "MDB", "CRSP"
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "BRK.B", "AVGO",
+    "WMT", "LLY", "JPM", "V", "MA", "XOM", "NFLX", "COST", "UNH", "ORCL",
+    "HD", "MRK", "PEP", "KO", "INTC", "CSCO", "CVX", "TMO", "ABT", "MCD",
+    "CRM", "ACN", "TXN", "NEE", "NKE", "LIN", "AMD", "QCOM", "PM", "UPS",
+    "MDT", "HON", "AMGN", "IBM", "BA", "CAT", "GS", "SBUX", "ISRG", "BLK",
+    "NOW", "BKNG", "LRCX", "ADI", "VRTX", "GILD", "ADBE", "PANW", "ASML", "INTU",
+    "PYPL", "REGN", "MU", "KLAC", "SNPS", "CDNS", "MRVL", "NXPI", "FTNT", "AEP",
+    "EXC", "ORLY", "CHTR", "ROST", "BIIB", "DXCM", "TEAM", "WDAY", "CTAS", "DDOG",
+    "PCAR", "ANSS", "XEL", "SIRI", "CEG", "LCID", "WBD", "SGEN", "VRSK", "FAST",
+    "ZS", "VRSN", "PAYX", "BIDU", "MTCH", "ALGN", "ZM", "JD", "ILMN", "LULU",
+    "DOCU", "ENPH", "OKTA", "PCTY", "MDB", "CRSP"
 ]
-
 
     results = []
     
