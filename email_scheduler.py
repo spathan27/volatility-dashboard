@@ -8,6 +8,8 @@ from email.message import EmailMessage
 import os
 from datetime import datetime
 import pytz
+from flask import Flask
+import threading
 
 # ========= Load Secrets from Environment =========
 EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
@@ -128,28 +130,22 @@ def schedule_check():
     if current_time == "09:45" or current_time == "14:00":
         job_send_email()
 
-# ========= Main Infinite Loop =========
-print("✅ Smart Scheduler started... Waiting for Eastern Time triggers...")
-
-while True:
-    schedule_check()
-    time.sleep(60)  # check every minute
-
-
-from flask import Flask
-
+# ========= Flask Web App to Keep Render Happy =========
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Volatility Screener Email Bot is running!"
+    return "✅ Volatility Screener Email Bot is running!"
+
+def main_loop():
+    print("✅ Smart Scheduler started... Waiting for Eastern Time triggers...")
+
+    while True:
+        schedule_check()
+        time.sleep(60)
 
 if __name__ == "__main__":
-    import threading
-
-    # Run scheduler in a separate thread
-    scheduler_thread = threading.Thread(target=lambda: main_loop())
+    scheduler_thread = threading.Thread(target=main_loop)
     scheduler_thread.start()
 
-    # Run fake web server to satisfy Render
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
