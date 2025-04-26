@@ -134,3 +134,22 @@ print("✅ Smart Scheduler started... Waiting for Eastern Time triggers...")
 while True:
     schedule_check()
     time.sleep(60)  # check every minute
+
+
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Volatility Screener Email Bot is running!"
+
+if __name__ == "__main__":
+    import threading
+
+    # Run scheduler in a separate thread
+    scheduler_thread = threading.Thread(target=lambda: main_loop())
+    scheduler_thread.start()
+
+    # Run fake web server to satisfy Render
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
