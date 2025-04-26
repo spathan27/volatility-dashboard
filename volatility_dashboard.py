@@ -1,6 +1,23 @@
+
+# ========= Custom Streamlit Page Config =========
+import streamlit as st
+
+st.set_page_config(
+    page_title="Volatility Screener Dashboard 🚀",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+from PIL import Image
+
+# Load and display logo
+logo = Image.open("logo.png")
+st.image(logo, width=250)
+
+
 # volatility_dashboard.py
 
-import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
