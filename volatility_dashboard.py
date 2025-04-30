@@ -1,7 +1,14 @@
-
-# ========= Custom Streamlit Page Config =========
 import streamlit as st
+from datetime import datetime
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import smtplib
+from email.message import EmailMessage
 
+from PIL import Image
+# ========== Streamlit Page Config ==========
 st.set_page_config(
     page_title="Volatility Screener Dashboard 🚀",
     page_icon="📈",
@@ -9,28 +16,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-from PIL import Image
-
-# Load and display logo
+# ========== Logo ==========
 logo = Image.open("logo.png")
 st.image(logo, width=250)
 
+# ========== Load Secrets ==========
 EMAIL_ADDRESS = st.secrets["email"]["address"]
 EMAIL_PASSWORD = st.secrets["email"]["password"]
 RECIPIENT_EMAIL = st.secrets["email"]["recipient"]
 
+# ========== Refresh Button ==========
+if st.sidebar.button("🔄 Refresh Data"):
+    st.cache_data.clear()
+    st.session_state['force_refresh'] = True
+    st.experimental_rerun()
+
 
 # volatility_dashboard.py
 
-import yfinance as yf
-import pandas as pd
-import numpy as np
-from datetime import datetime
-import matplotlib.pyplot as plt
-
-
-import smtplib
-from email.message import EmailMessage
 
 def send_email_report_html(df_filtered):
     if df_filtered.empty:
@@ -82,6 +85,8 @@ def fetch_stock_data():
     "ZS", "VRSN", "PAYX", "BIDU", "MTCH", "ALGN", "ZM", "JD", "ILMN", "LULU",
     "DOCU", "ENPH", "OKTA", "PCTY", "MDB", "CRSP"
 ]
+
+st.session_state['last_refresh'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     results = []
     
@@ -144,15 +149,25 @@ def fetch_stock_data():
     return df
 
 # ========== App Interface ==========
+# ========== Use Cached or Refreshed Data ==========
+if 'data' not in st.session_state or st.session_state.get('force_refresh', False):
+    df = fetch_stock_data()
+    st.session_state['data'] = df
+    st.session_state['force_refresh'] = False
+else:
+    df = st.session_state['data']
 
 st.title("📈 Advanced Volatility Screener Dashboard")
 st.caption("Built with Streamlit + Yahoo Finance")
-
-df = fetch_stock_data()
-
+# ========== Show Last Refreshed ==========
+if 'last_refresh' in st.session_state:
+    st.caption(f"🕒 Last refreshed: {st.session_state['last_refresh']} (Eastern Time)")
+else:
+    st.caption("🕒 Last refreshed: Not yet loaded.")
 st.sidebar.header("Filters")
 min_premium = st.sidebar.slider("Minimum IV Premium", 1.0, 3.0, 1.5, step=0.1)
 top_n = st.sidebar.slider("Top N stocks", 5, 20, 10)
+
 
 sector_filter = st.sidebar.multiselect(
     "Sector Filter",
@@ -164,6 +179,7 @@ focus_option = st.sidebar.radio(
     "Focus on:",
     options=["Call Premium", "Put Premium"]
 )
+
 
 # Apply Sector Filter
 if "All" not in sector_filter:
