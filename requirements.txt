@@ -6,5 +6,3 @@ streamlit
 lxml
 schedule
 pillow
-pytz
-flask

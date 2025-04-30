@@ -6,21 +6,16 @@ import yfinance as yf
 import smtplib
 from email.message import EmailMessage
 import os
-from datetime import datetime
-import pytz
-from flask import Flask
-import threading
 
 # ========= Load Secrets from Environment =========
 EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 
-# ========= Timezone Setup =========
-eastern = pytz.timezone('US/Eastern')
-
-# ========= Full Ticker List =========
-tickers = [
+# ========= Fetch Stock Data =========
+def fetch_stock_data():
+    # List of NASDAQ-100 or large-cap tickers
+    tickers = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "BRK.B", "AVGO",
     "WMT", "LLY", "JPM", "V", "MA", "XOM", "NFLX", "COST", "UNH", "ORCL",
     "HD", "MRK", "PEP", "KO", "INTC", "CSCO", "CVX", "TMO", "ABT", "MCD",
@@ -34,8 +29,6 @@ tickers = [
     "DOCU", "ENPH", "OKTA", "PCTY", "MDB", "CRSP"
 ]
 
-# ========= Fetch Stock Data =========
-def fetch_stock_data():
     results = []
     for ticker in tickers:
         try:
@@ -73,7 +66,7 @@ def fetch_stock_data():
     return df
 
 # ========= Send Email =========
-def send_email_report_html(df_filtered, custom_subject):
+def send_email_report_html(df_filtered):
     if df_filtered.empty:
         return "No data to email."
 
@@ -84,7 +77,7 @@ def send_email_report_html(df_filtered, custom_subject):
     html_content = f"""
     <html>
         <body style="font-family: Arial; background-color: #f4f4f4; padding: 20px;">
-            <h2>{custom_subject}</h2>
+            <h2>📈 Volatility Screener - Top 10 Opportunities</h2>
             {html_table}
             <p style="font-size: 12px; color: #999;">Sent automatically by your Screener Bot 🤖</p>
         </body>
@@ -92,7 +85,7 @@ def send_email_report_html(df_filtered, custom_subject):
     """
 
     msg = EmailMessage()
-    msg['Subject'] = custom_subject
+    msg['Subject'] = '📈 Volatility Screener – Daily Alerts'
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = RECIPIENT_EMAIL
     msg.set_content("This is an HTML email. Please view it in an email client that supports HTML.")
@@ -104,48 +97,23 @@ def send_email_report_html(df_filtered, custom_subject):
 
     return "✅ HTML Email sent successfully!"
 
-# ========= Smart Scheduler =========
-def job_send_email():
-    now = datetime.now(eastern)
-    current_time = now.strftime("%H:%M")
-
-    print(f"⏰ Current Eastern Time: {current_time}")
-
+# ========= Scheduler Jobs =========
+def job_send_morning_email():
+    print("⏰ Morning Email Triggered!")
     df = fetch_stock_data()
+    send_email_report_html(df)
 
-    if "09:45" <= current_time < "10:30":
-        subject = "📈 Morning Volatility Screener Update 🚀"
-    elif "14:00" <= current_time < "15:00":
-        subject = "📈 Afternoon Volatility Screener Update 🚀"
-    else:
-        subject = "📈 Volatility Screener Update 🚀"
+def job_send_afternoon_email():
+    print("⏰ Afternoon Email Triggered!")
+    df = fetch_stock_data()
+    send_email_report_html(df)
 
-    send_email_report_html(df, subject)
+# ========= Schedule =========
+schedule.every().day.at("09:45").do(job_send_morning_email)
+schedule.every().day.at("14:00").do(job_send_afternoon_email)
 
-# ========= Check Every Minute =========
-def schedule_check():
-    now = datetime.now(eastern)
-    current_time = now.strftime("%H:%M")
+print("✅ Scheduler started... Waiting for trigger times...")
 
-    if current_time == "09:45" or current_time == "14:00":
-        job_send_email()
-
-# ========= Flask Web App to Keep Render Happy =========
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "✅ Volatility Screener Email Bot is running!"
-
-def main_loop():
-    print("✅ Smart Scheduler started... Waiting for Eastern Time triggers...")
-
-    while True:
-        schedule_check()
-        time.sleep(60)
-
-if __name__ == "__main__":
-    scheduler_thread = threading.Thread(target=main_loop)
-    scheduler_thread.start()
-
-    app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
+while True:
+    schedule.run_pending()
+    time.sleep(30)
