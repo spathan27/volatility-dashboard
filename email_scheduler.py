@@ -1,16 +1,19 @@
 import schedule
 import time
 import pandas as pd
-import numpy as np
-import yfinance as yf
 import smtplib
 from email.message import EmailMessage
 import os
+
+from polygon_data import create_client, get_ticker_snapshot, load_polygon_api_key
 
 # ========= Load Secrets from Environment =========
 EMAIL_ADDRESS = os.getenv('EMAIL_ADDRESS')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
+POLYGON_API_KEY = load_polygon_api_key()
+
+CLIENT = create_client(POLYGON_API_KEY)
 
 # ========= Fetch Stock Data =========
 def fetch_stock_data():
@@ -31,34 +34,26 @@ def fetch_stock_data():
 
     results = []
     for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            hist = stock.history(period="1y")
+        snapshot = get_ticker_snapshot(CLIENT, ticker)
+        if not snapshot:
+            continue
 
-            if not hist.empty:
-                hist['log_return'] = np.log(hist['Close'] / hist['Close'].shift(1))
-                hist_vol = hist['log_return'].dropna().std() * np.sqrt(252)
-            else:
-                hist_vol = None
+        hist_vol = snapshot.get("HistVol")
+        call_iv = snapshot.get("AvgCallIV")
+        put_iv = snapshot.get("AvgPutIV")
+        avg_iv = None
+        if call_iv is not None and put_iv is not None:
+            avg_iv = (call_iv + put_iv) / 2
 
-            options_dates = stock.options
-            avg_iv = None
-            if options_dates:
-                chain = stock.option_chain(options_dates[0])
-                calls = chain.calls
-                if not calls.empty and 'impliedVolatility' in calls.columns:
-                    avg_iv = calls['impliedVolatility'].mean()
+        iv_premium = avg_iv / hist_vol if avg_iv and hist_vol else None
 
-            results.append({
-                "Ticker": ticker,
-                "CurrentPrice": info.get('regularMarketPrice', None),
-                "HistVol": hist_vol,
-                "AvgIV": avg_iv,
-                "IVPremium": avg_iv / hist_vol if avg_iv and hist_vol else None
-            })
-        except Exception as e:
-            print(f"Error processing {ticker}: {e}")
+        results.append({
+            "Ticker": ticker,
+            "CurrentPrice": snapshot.get("CurrentPrice"),
+            "HistVol": hist_vol,
+            "AvgIV": avg_iv,
+            "IVPremium": iv_premium
+        })
 
     df = pd.DataFrame(results)
     df = df.dropna(subset=["AvgIV", "HistVol"])
