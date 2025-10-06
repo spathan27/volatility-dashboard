@@ -22,11 +22,15 @@ RECIPIENT_EMAIL = st.secrets["email"]["recipient"]
 
 # volatility_dashboard.py
 
-import yfinance as yf
 import pandas as pd
-import numpy as np
-from datetime import datetime
 import matplotlib.pyplot as plt
+
+from polygon_data import (
+    create_client,
+    get_historical_volatility,
+    get_ticker_snapshot,
+    load_polygon_api_key,
+)
 
 
 import smtplib
@@ -67,8 +71,21 @@ def send_email_report_html(df_filtered):
 
 # ========== Data Fetcher (Big Tickers + Sector) ==========
 
+try:
+    POLYGON_API_KEY = load_polygon_api_key()
+except ValueError as error:
+    st.error(str(error))
+    st.stop()
+
+
+@st.cache_resource
+def get_polygon_client():
+    return create_client(POLYGON_API_KEY)
+
+
 @st.cache_data
 def fetch_stock_data():
+    client = get_polygon_client()
     tickers = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "BRK.B", "AVGO",
     "WMT", "LLY", "JPM", "V", "MA", "XOM", "NFLX", "COST", "UNH", "ORCL",
@@ -86,59 +103,9 @@ def fetch_stock_data():
     results = []
     
     for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-            sector = info.get('sector', 'Unknown')
-            market_cap = info.get('marketCap', 0)
-            current_price = info.get('regularMarketPrice', None)
-
-            if market_cap is None or market_cap < 5e9:
-                continue  # Skip small caps
-
-            hist = stock.history(period="1y")
-            if hist.empty:
-                continue
-            hist['log_return'] = np.log(hist['Close'] / hist['Close'].shift(1))
-            hist['HV_20d'] = hist['log_return'].rolling(window=20).std() * np.sqrt(252)
-
-            today = datetime.today()
-            valid_expiries = [date for date in stock.options if (datetime.strptime(date, "%Y-%m-%d") - today).days >= 7]
-            if not valid_expiries:
-                continue
-
-            next_expiry = valid_expiries[0]
-            chain = stock.option_chain(next_expiry)
-            calls = chain.calls
-            puts = chain.puts
-
-            if calls.empty or puts.empty:
-                continue
-
-            otm_calls = calls[(calls['strike'] > current_price) & (calls['volume'] > 0) & (calls['openInterest'] > 0)]
-            otm_puts = puts[(puts['strike'] < current_price) & (puts['volume'] > 0) & (puts['openInterest'] > 0)]
-
-            if otm_calls.empty or otm_puts.empty:
-                continue
-
-            avg_call_iv = otm_calls['impliedVolatility'].mean()
-            avg_put_iv = otm_puts['impliedVolatility'].mean()
-
-            results.append({
-                "Ticker": ticker,
-                "Sector": sector,
-                "MarketCap": market_cap,
-                "CurrentPrice": current_price,
-                "HistVol": hist['HV_20d'].iloc[-1],
-                "AvgCallIV": avg_call_iv,
-                "AvgPutIV": avg_put_iv,
-                "Call_IV_Premium": avg_call_iv / hist['HV_20d'].iloc[-1] if hist['HV_20d'].iloc[-1] else None,
-                "Put_IV_Premium": avg_put_iv / hist['HV_20d'].iloc[-1] if hist['HV_20d'].iloc[-1] else None,
-                "IV_Skew": avg_put_iv - avg_call_iv
-            })
-        
-        except Exception as e:
-            print(f"Error processing {ticker}: {e}")
+        snapshot = get_ticker_snapshot(client, ticker)
+        if snapshot:
+            results.append(snapshot)
 
     df = pd.DataFrame(results)
     return df
@@ -146,7 +113,7 @@ def fetch_stock_data():
 # ========== App Interface ==========
 
 st.title("📈 Advanced Volatility Screener Dashboard")
-st.caption("Built with Streamlit + Yahoo Finance")
+st.caption("Built with Streamlit + Polygon.io")
 
 df = fetch_stock_data()
 
@@ -171,10 +138,10 @@ if "All" not in sector_filter:
 
 # Apply Premium Filter
 if focus_option == "Call Premium":
-    df_filtered = df[df['Call_IV_Premium'] >= min_premium]
+    df_filtered = df[df['Call_IV_Premium'] >= min_premium].copy()
     df_filtered = df_filtered.sort_values(by="Call_IV_Premium", ascending=False).head(top_n)
 else:
-    df_filtered = df[df['Put_IV_Premium'] >= min_premium]
+    df_filtered = df[df['Put_IV_Premium'] >= min_premium].copy()
     df_filtered = df_filtered.sort_values(by="Put_IV_Premium", ascending=False).head(top_n)
 
 st.subheader(f"Top {focus_option} Opportunities")
@@ -201,34 +168,28 @@ selected_ticker = st.selectbox(
 
 if selected_ticker != "None":
     try:
-        stock = yf.Ticker(selected_ticker)
+        client = get_polygon_client()
+        hist, _ = get_historical_volatility(client, selected_ticker, days=365, window=20)
+        hist = hist.dropna(subset=["HV_20d"])
 
-        hist = stock.history(period="1y")
-        hist['log_return'] = np.log(hist['Close'] / hist['Close'].shift(1))
-        hist['HV_20d'] = hist['log_return'].rolling(window=20).std() * np.sqrt(252)
+        row = df_filtered[df_filtered['Ticker'] == selected_ticker]
+        avg_call_iv = row['AvgCallIV'].iloc[0] if not row.empty else None
+        avg_put_iv = row['AvgPutIV'].iloc[0] if not row.empty else None
 
-        today = datetime.today()
-        valid_expiries = [date for date in stock.options if (datetime.strptime(date, "%Y-%m-%d") - today).days >= 7]
-        avg_call_iv, avg_put_iv = None, None
-        if valid_expiries:
-            expiry = valid_expiries[0]
-            chain = stock.option_chain(expiry)
-            calls = chain.calls
-            puts = chain.puts
-            avg_call_iv = calls['impliedVolatility'].mean()
-            avg_put_iv = puts['impliedVolatility'].mean()
+        if hist.empty:
+            st.warning("Not enough historical data to chart this ticker.")
+        else:
+            fig, ax1 = plt.subplots(figsize=(10, 5))
+            ax1.plot(hist.index, hist['HV_20d'], label="20d Historical Volatility", color='blue')
+            if avg_call_iv:
+                ax1.axhline(y=avg_call_iv, linestyle='--', color='green', label="Avg Call IV (current)")
+            if avg_put_iv:
+                ax1.axhline(y=avg_put_iv, linestyle='--', color='red', label="Avg Put IV (current)")
 
-        fig, ax1 = plt.subplots(figsize=(10, 5))
-        ax1.plot(hist.index, hist['HV_20d'], label="20d Historical Volatility", color='blue')
-        if avg_call_iv:
-            ax1.axhline(y=avg_call_iv, linestyle='--', color='green', label="Avg Call IV (current)")
-        if avg_put_iv:
-            ax1.axhline(y=avg_put_iv, linestyle='--', color='red', label="Avg Put IV (current)")
-
-        ax1.set_ylabel("Volatility (Annualized)")
-        ax1.set_title(f"{selected_ticker} Volatility: HV vs IV")
-        ax1.legend()
-        st.pyplot(fig)
+            ax1.set_ylabel("Volatility (Annualized)")
+            ax1.set_title(f"{selected_ticker} Volatility: HV vs IV")
+            ax1.legend()
+            st.pyplot(fig)
 
     except Exception as e:
         st.error(f"Could not load chart: {e}")
@@ -267,39 +228,31 @@ st.dataframe(df_filtered[['Ticker', 'Sector', 'CurrentPrice', 'Call_IV_Premium',
 
 st.subheader("🔎 Volatility Reversion Backtest (Dynamic Exit)")
 
-def dynamic_backtest(selected_tickers):
+def dynamic_backtest(selected_tickers, df_source):
     results = []
+    client = get_polygon_client()
     for ticker in selected_tickers:
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="6mo")
+            hist, _ = get_historical_volatility(client, ticker, days=180, window=20)
+            hist = hist.dropna(subset=["HV_20d"])
 
             if hist.empty or len(hist) < 30:
                 continue
 
-            hist['log_return'] = np.log(hist['Close'] / hist['Close'].shift(1))
-            hist['HV_20d'] = hist['log_return'].rolling(window=20).std() * np.sqrt(252)
-            hist.dropna(inplace=True)
+            row = df_source[df_source['Ticker'] == ticker]
+            if row.empty:
+                continue
+
+            entry_call_iv = row['AvgCallIV'].iloc[0]
+            entry_put_iv = row['AvgPutIV'].iloc[0]
+            if pd.isna(entry_call_iv) or pd.isna(entry_put_iv):
+                continue
+
+            avg_iv = (entry_call_iv + entry_put_iv) / 2
+            if avg_iv <= 0:
+                continue
 
             entry_hv = hist['HV_20d'].iloc[0]
-            today = datetime.today()
-
-            valid_expiries = [date for date in stock.options if (datetime.strptime(date, "%Y-%m-%d") - today).days >= 7]
-            if not valid_expiries:
-                continue
-
-            expiry = valid_expiries[0]
-            chain = stock.option_chain(expiry)
-            calls = chain.calls
-            puts = chain.puts
-
-            if calls.empty or puts.empty:
-                continue
-
-            avg_call_iv = calls['impliedVolatility'].mean()
-            avg_put_iv = puts['impliedVolatility'].mean()
-            avg_iv = (avg_call_iv + avg_put_iv) / 2
-
             exit_day = None
             for i in range(1, len(hist)):
                 hv_now = hist['HV_20d'].iloc[i]
@@ -335,7 +288,7 @@ def dynamic_backtest(selected_tickers):
 selected_backtest_tickers = df_filtered['Ticker'].tolist()
 
 if st.button("Run Dynamic Volatility Backtest"):
-    backtest_results = dynamic_backtest(selected_backtest_tickers)
+    backtest_results = dynamic_backtest(selected_backtest_tickers, df_filtered)
     st.subheader("📈 Backtest Results (Dynamic Exit)")
     st.dataframe(backtest_results)
     
