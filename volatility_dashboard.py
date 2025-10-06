@@ -150,13 +150,20 @@ st.caption("Built with Streamlit + Yahoo Finance")
 
 df = fetch_stock_data()
 
+if df.empty:
+    st.warning(
+        "We couldn't load any data from Yahoo Finance right now. Please try again shortly."
+    )
+    st.stop()
+
 st.sidebar.header("Filters")
 min_premium = st.sidebar.slider("Minimum IV Premium", 1.0, 3.0, 1.5, step=0.1)
 top_n = st.sidebar.slider("Top N stocks", 5, 20, 10)
 
+sector_options = sorted(set(df['Sector'].dropna()))
 sector_filter = st.sidebar.multiselect(
     "Sector Filter",
-    options=["All"] + sorted(list(set(df['Sector']))),
+    options=["All"] + sector_options,
     default=["All"]
 )
 
@@ -177,8 +184,86 @@ else:
     df_filtered = df[df['Put_IV_Premium'] >= min_premium]
     df_filtered = df_filtered.sort_values(by="Put_IV_Premium", ascending=False).head(top_n)
 
+df_filtered = df_filtered.copy()
+
+if df_filtered.empty:
+    st.info("No tickers met the current filter criteria. Try adjusting the sliders.")
+    st.stop()
+
 st.subheader(f"Top {focus_option} Opportunities")
 st.dataframe(df_filtered)
+
+
+def _safe_idxmax(series: pd.Series):
+    cleaned = series.replace([np.inf, -np.inf], np.nan).dropna()
+    if cleaned.empty:
+        return None
+    return cleaned.idxmax()
+
+
+def generate_textual_insights(df_insights: pd.DataFrame):
+    insights = []
+
+    call_idx = _safe_idxmax(df_insights['Call_IV_Premium'])
+    if call_idx is not None:
+        row = df_insights.loc[call_idx]
+        insights.append(
+            f"**{row['Ticker']}** shows the richest call premium at {row['Call_IV_Premium']:.2f}× its historical volatility."
+        )
+
+    put_idx = _safe_idxmax(df_insights['Put_IV_Premium'])
+    if put_idx is not None:
+        row = df_insights.loc[put_idx]
+        insights.append(
+            f"**{row['Ticker']}** has the most elevated put premium, {row['Put_IV_Premium']:.2f}× vs. history."
+        )
+
+    skew_idx = _safe_idxmax(df_insights['IV_Skew'].abs())
+    if skew_idx is not None:
+        row = df_insights.loc[skew_idx]
+        direction = "puts" if row['IV_Skew'] > 0 else "calls"
+        insights.append(
+            f"**{row['Ticker']}** shows the strongest skew favouring {direction} (skew {row['IV_Skew']:+.2f})."
+        )
+
+    return insights
+
+
+st.subheader("🔍 Key Insights")
+insight_cols = st.columns(3)
+
+metrics = {
+    "Avg Call Premium": df_filtered['Call_IV_Premium'].replace([np.inf, -np.inf], np.nan).mean(),
+    "Avg Put Premium": df_filtered['Put_IV_Premium'].replace([np.inf, -np.inf], np.nan).mean(),
+    "Avg IV Skew": df_filtered['IV_Skew'].replace([np.inf, -np.inf], np.nan).mean(),
+}
+
+for (label, value), col in zip(metrics.items(), insight_cols):
+    if pd.isna(value):
+        col.metric(label, "–")
+    else:
+        col.metric(label, f"{value:.2f}")
+
+for insight in generate_textual_insights(df_filtered):
+    st.markdown(f"- {insight}")
+
+sector_summary = (
+    df_filtered
+    .groupby('Sector')[['Call_IV_Premium', 'Put_IV_Premium', 'IV_Skew']]
+    .mean()
+    .reset_index()
+    .sort_values(by='Call_IV_Premium', ascending=False)
+)
+
+if not sector_summary.empty:
+    st.subheader("🏭 Sector-Level Premium Averages")
+    st.dataframe(
+        sector_summary.style.format({
+            'Call_IV_Premium': '{:.2f}',
+            'Put_IV_Premium': '{:.2f}',
+            'IV_Skew': '{:+.2f}'
+        })
+    )
 
 # Download CSV
 st.download_button(
@@ -229,9 +314,38 @@ if selected_ticker != "None":
         ax1.set_title(f"{selected_ticker} Volatility: HV vs IV")
         ax1.legend()
         st.pyplot(fig)
+        plt.close(fig)
 
     except Exception as e:
         st.error(f"Could not load chart: {e}")
+
+# ========== Premium Dispersion Chart ==========
+
+st.subheader("🛰️ Premium Dispersion Snapshot")
+
+fig_dispersion, ax_dispersion = plt.subplots(figsize=(8, 5))
+scatter = ax_dispersion.scatter(
+    df_filtered['Call_IV_Premium'],
+    df_filtered['Put_IV_Premium'],
+    c=df_filtered['IV_Skew'],
+    cmap='coolwarm',
+    edgecolor='k'
+)
+ax_dispersion.set_xlabel('Call IV Premium')
+ax_dispersion.set_ylabel('Put IV Premium')
+ax_dispersion.set_title('Call vs. Put IV Premium (colour = skew)')
+colorbar = fig_dispersion.colorbar(scatter, ax=ax_dispersion)
+colorbar.set_label('IV Skew')
+for _, row in df_filtered.iterrows():
+    ax_dispersion.annotate(
+        row['Ticker'],
+        (row['Call_IV_Premium'], row['Put_IV_Premium']),
+        fontsize=8,
+        alpha=0.7
+    )
+
+st.pyplot(fig_dispersion)
+plt.close(fig_dispersion)
 
 # ========== Auto Strategy Recommender ==========
 
