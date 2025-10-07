@@ -117,13 +117,41 @@ st.caption("Built with Streamlit + Polygon.io")
 
 df = fetch_stock_data()
 
+if df.empty:
+    st.error(
+        "No ticker data was retrieved from Polygon. Please verify your API key and "
+        "plan permissions, then try again."
+    )
+    st.stop()
+
+required_columns = {
+    "Ticker",
+    "Call_IV_Premium",
+    "Put_IV_Premium",
+    "IV_Skew",
+    "AvgCallIV",
+    "AvgPutIV",
+    "CurrentPrice",
+}
+
+missing_columns = sorted(required_columns.difference(df.columns))
+if missing_columns:
+    st.error(
+        "The Polygon response was missing required fields: "
+        f"{', '.join(missing_columns)}. Please try again later."
+    )
+    st.stop()
+
+if "Sector" not in df.columns:
+    df["Sector"] = "Unknown"
+
 st.sidebar.header("Filters")
 min_premium = st.sidebar.slider("Minimum IV Premium", 1.0, 3.0, 1.5, step=0.1)
 top_n = st.sidebar.slider("Top N stocks", 5, 20, 10)
 
 sector_filter = st.sidebar.multiselect(
     "Sector Filter",
-    options=["All"] + sorted(list(set(df['Sector']))),
+    options=["All"] + sorted(df["Sector"].dropna().unique().tolist()),
     default=["All"]
 )
 
