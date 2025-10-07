@@ -222,19 +222,19 @@ def get_ticker_snapshot(
 
     sector = getattr(details, "sector", None) or "Unknown"
 
-    try:
-        last_trade = client.get_last_trade(ticker)
-        current_price = getattr(last_trade, "price", None)
-    except Exception:
-        current_price = None
-
-    if current_price is None:
-        return None
-
     hist_prices, hist_vol = get_historical_volatility(
         client, ticker, days=hv_days, window=hv_window
     )
     if hist_vol is None or not np.isfinite(hist_vol):
+        return None
+
+    current_price = None
+    if not hist_prices.empty:
+        latest_close = hist_prices["Close"].dropna()
+        if not latest_close.empty:
+            current_price = float(latest_close.iloc[-1])
+
+    if current_price is None:
         return None
 
     call_iv, put_iv, expiry = get_option_iv_snapshot(
